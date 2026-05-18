@@ -27,10 +27,44 @@ solver:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
 from numpy.typing import NDArray
+
+ChordTwistFn = Callable[[NDArray[np.float64]], NDArray[np.float64]]
+
+
+# Named field constructors for the analytical chord/twist functions of each
+# factory planform. Using closures with explicit types (rather than inline
+# lambdas) keeps mypy happy and produces clearer tracebacks.
+def _const_field(value: float) -> ChordTwistFn:
+    """Spatially-constant field ``f(y) = value`` for every y."""
+    def _f(y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.full_like(y, value, dtype=np.float64)
+    return _f
+
+
+def _elliptic_chord_field(root_chord: float, span: float) -> ChordTwistFn:
+    """Elliptic chord ``c(y) = c_root · √(1 − (2y/b)²)``."""
+    def _f(y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return root_chord * np.sqrt(np.maximum(1.0 - (2.0 * y / span) ** 2, 0.0))
+    return _f
+
+
+def _tapered_chord_field(root_chord: float, taper: float, span: float) -> ChordTwistFn:
+    """Linearly tapered chord ``c(y) = c_root · (1 − (1 − λ) · |2y/b|)``."""
+    def _f(y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return root_chord * (1.0 - (1.0 - taper) * np.abs(2.0 * y / span))
+    return _f
+
+
+def _linear_twist_field(twist_root: float, twist_tip: float, span: float) -> ChordTwistFn:
+    """Linear washout twist ``θ(y) = θ_root + (θ_tip − θ_root) · |2y/b|``."""
+    def _f(y: NDArray[np.float64]) -> NDArray[np.float64]:
+        return twist_root + (twist_tip - twist_root) * np.abs(2.0 * y / span)
+    return _f
 
 
 @dataclass(frozen=True)
@@ -39,8 +73,11 @@ class Wing:
 
     All quantities are pre-sampled at cosine-spaced control points; the
     object is frozen so the discretization can't drift after construction.
-    Prefer the factory classmethods (``rectangular``, ``elliptic``, ``tapered``)
-    over direct construction.
+    Factory classmethods (``rectangular``, ``elliptic``, ``tapered``) also
+    record the analytical chord and twist functions, which solvers that
+    discretize differently (e.g. :func:`classical.glauert_fourier_llt`)
+    can use to evaluate the planform exactly at their own collocation
+    points instead of interpolating from this object's grid.
 
     Attributes
     ----------
@@ -67,6 +104,29 @@ class Wing:
     y_cp: NDArray[np.float64]
     y_edges: NDArray[np.float64]
     name: str = field(default="custom")
+    # Optional analytical evaluators. When present, alternative discretizations
+    # can sample the planform at their own grid without interpolating from cp.
+    _chord_fn: ChordTwistFn | None = field(default=None, repr=False, compare=False)
+    _twist_fn: ChordTwistFn | None = field(default=None, repr=False, compare=False)
+
+    def chord_at(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Chord at arbitrary spanwise locations ``y``.
+
+        Uses the analytical chord function when available (factory-built
+        wings); falls back to linear interpolation from ``chord_cp`` for
+        custom wings.
+        """
+        y_arr = np.atleast_1d(np.asarray(y, dtype=np.float64))
+        if self._chord_fn is not None:
+            return self._chord_fn(y_arr)
+        return np.interp(y_arr, self.y_cp, self.chord_cp)
+
+    def twist_at(self, y: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Geometric twist (degrees) at arbitrary spanwise locations ``y``."""
+        y_arr = np.atleast_1d(np.asarray(y, dtype=np.float64))
+        if self._twist_fn is not None:
+            return self._twist_fn(y_arr)
+        return np.interp(y_arr, self.y_cp, self.twist_deg_cp)
 
     @property
     def n_sections(self) -> int:
@@ -113,20 +173,24 @@ class Wing:
         chord: float,
         twist_deg: float = 0.0,
         n_sections: int = 60,
-    ) -> "Wing":
+    ) -> Wing:
         """Constant-chord, constant-twist rectangular wing.
 
         Reference area is exact: ``S = b · c``.
         """
         y_cp, y_edges = cls._make_grid(span, n_sections)
+        c_val = float(chord)
+        t_val = float(twist_deg)
         return cls(
             span=span,
-            area=span * chord,
-            chord_cp=np.full(n_sections, chord, dtype=np.float64),
-            twist_deg_cp=np.full(n_sections, twist_deg, dtype=np.float64),
+            area=span * c_val,
+            chord_cp=np.full(n_sections, c_val, dtype=np.float64),
+            twist_deg_cp=np.full(n_sections, t_val, dtype=np.float64),
             y_cp=y_cp,
             y_edges=y_edges,
             name="rectangular",
+            _chord_fn=_const_field(c_val),
+            _twist_fn=_const_field(t_val),
         )
 
     @classmethod
@@ -136,7 +200,7 @@ class Wing:
         root_chord: float,
         twist_deg: float = 0.0,
         n_sections: int = 60,
-    ) -> "Wing":
+    ) -> Wing:
         """Elliptic planform with ``c(y) = c_root · √(1 − (2y/b)²)``.
 
         Reference area is exact: ``S = π · b · c_root / 4``.
@@ -144,15 +208,20 @@ class Wing:
         which is the cornerstone analytical check of the solver.
         """
         y_cp, y_edges = cls._make_grid(span, n_sections)
-        chord = root_chord * np.sqrt(np.maximum(1.0 - (2.0 * y_cp / span) ** 2, 0.0))
+        b = float(span)
+        cr = float(root_chord)
+        t_val = float(twist_deg)
+        chord = cr * np.sqrt(np.maximum(1.0 - (2.0 * y_cp / b) ** 2, 0.0))
         return cls(
-            span=span,
-            area=np.pi * span * root_chord / 4.0,
+            span=b,
+            area=np.pi * b * cr / 4.0,
             chord_cp=chord,
-            twist_deg_cp=np.full(n_sections, twist_deg, dtype=np.float64),
+            twist_deg_cp=np.full(n_sections, t_val, dtype=np.float64),
             y_cp=y_cp,
             y_edges=y_edges,
             name="elliptic",
+            _chord_fn=_elliptic_chord_field(cr, b),
+            _twist_fn=_const_field(t_val),
         )
 
     @classmethod
@@ -164,7 +233,7 @@ class Wing:
         twist_root_deg: float = 0.0,
         twist_tip_deg: float = 0.0,
         n_sections: int = 60,
-    ) -> "Wing":
+    ) -> Wing:
         """Linearly tapered wing with optional linear washout.
 
         ``taper_ratio = c_tip / c_root``. Twist varies linearly from root
@@ -176,15 +245,22 @@ class Wing:
         if taper_ratio <= 0:
             raise ValueError(f"taper_ratio must be > 0; got {taper_ratio}")
         y_cp, y_edges = cls._make_grid(span, n_sections)
-        eta = np.abs(2.0 * y_cp / span)   # 0 at root, 1 at tip
-        chord = root_chord * (1.0 - (1.0 - taper_ratio) * eta)
-        twist = twist_root_deg + (twist_tip_deg - twist_root_deg) * eta
+        b = float(span)
+        cr = float(root_chord)
+        lam = float(taper_ratio)
+        tr = float(twist_root_deg)
+        tt = float(twist_tip_deg)
+        eta = np.abs(2.0 * y_cp / b)      # 0 at root, 1 at tip
+        chord = cr * (1.0 - (1.0 - lam) * eta)
+        twist = tr + (tt - tr) * eta
         return cls(
-            span=span,
-            area=span * root_chord * (1.0 + taper_ratio) / 2.0,
+            span=b,
+            area=b * cr * (1.0 + lam) / 2.0,
             chord_cp=chord,
             twist_deg_cp=twist,
             y_cp=y_cp,
             y_edges=y_edges,
-            name=f"tapered(λ={taper_ratio:g})",
+            name=f"tapered(λ={lam:g})",
+            _chord_fn=_tapered_chord_field(cr, lam, b),
+            _twist_fn=_linear_twist_field(tr, tt, b),
         )

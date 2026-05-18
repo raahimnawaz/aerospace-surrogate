@@ -10,9 +10,9 @@ A reproducible benchmark for replacing expensive panel-method aerodynamic solver
 
 ![CL: ML surrogate vs classical thin airfoil theory](figures/ml_vs_physics_cl.png)
 
-**Headline 3D result.** The nonlinear lifting-line solver reproduces the analytical identity ``CDi = CL² / (π · AR)`` for an elliptic wing to **3 × 10⁻¹⁵ relative error** (machine precision) and converges through stall in 2-4 Newton iterations. Coupled with NeuralFoil as the sectional polar, this is the first place in the project where induced drag — typically 30-50% of total drag at cruise — is actually computed.
+**Headline 3D result.** The nonlinear lifting-line solver reproduces the analytical identity ``CDi = CL² / (π · AR)`` for an elliptic wing to **3 × 10⁻¹⁵ relative error** (machine precision), agrees with the classical Glauert Fourier-series formulation to 4-5 decimals on rectangular and tapered wings, and converges through stall in 2-4 Newton iterations. Coupling NeuralFoil as the sectional polar produces a viscous 3D wing analysis where **induced drag is 69% of total drag** at ``CL = 0.5`` on a NACA 2412 AR=8 wing — exactly the contribution a 2D-only pipeline cannot see.
 
-![Elliptic wing: LLT solver vs the analytical identity](figures/llt_elliptic_identity.png)
+![NeuralFoil-coupled 3D wing analysis](figures/llt_neuralfoil_wing.png)
 
 ---
 
@@ -139,21 +139,26 @@ $$
 
 with the Jacobian $J_{ij} = \delta_{ij} + \tfrac{1}{2} c_i\, a_i\, W_{ij}$ where $a_i = dC_l/d\alpha$ comes from a one-sided finite difference on the sectional polar (so the solver works with any polar — even a black-box neural net) and $W_{ij}$ is the horseshoe-vortex induction matrix.
 
-### Validation (13 property tests, all passing)
+### Validation (17 property tests, all passing)
 
 | Identity | Source | Result |
 |---|---|---:|
 | Elliptic wing: $C_{D_i} = C_L^2 / (\pi \cdot AR)$ | classical LLT | matches to **3 × 10⁻¹⁵** rel. error |
+| **Glauert Fourier-series LLT (independent formulation)** | Glauert 1926, Anderson Ch. 5 | $C_L$, $C_{D_i}$ agree to **0.5%** across elliptic/rectangular/tapered wings |
+| Elliptic via Glauert: higher modes $A_n$ for $n ≥ 3$ | classical LLT | vanish to machine precision ($|A_3/A_1| \sim 10^{-17}$) |
 | Finite-wing slope: $a = 2\pi \cdot AR/(AR+2)$ | Helmbold | matches to **5 × 10⁻⁵** |
 | Rectangular wing: $e \in (0.85, 1.0)$ | classical LLT | 0.86 (AR=20) — 0.97 (AR=4) |
 | Elliptic loading shape $\Gamma(y) \propto \sqrt{1-(2y/b)^2}$ | classical LLT | matches to 5 × 10⁻³ |
 | Convergence through stall (α=0 → 55°) | flat-plate polar | converges in 2-7 Newton iterations |
 | Washout shifts loading inboard | aircraft design | tip $\Gamma$ reduced 53% with −3° washout |
 
+The Glauert cross-validation is the strongest internal-consistency check: the Newton solver discretizes the wing as a horseshoe-vortex sheet and iterates to a self-consistent circulation; the Glauert solver expands the same circulation as a half-span Fourier sine series and solves a single linear system. Two mathematically distinct formulations of the same physics agreeing to 4-5 decimals means the kernel, the integration weights, and the boundary conditions are all internally consistent.
+
 ### Demo figures
 
 | Figure | What it shows |
 |---|---|
+| ![](figures/llt_neuralfoil_wing.png) | **The headline.** NACA 2412 wing (AR=8, Re=3×10⁶) analyzed with NeuralFoil as the 2D sectional polar. Left panel: lift-slope reduction (2D CL reaches 1.6 at α=14°, 3D wing only 1.34). Right panel: drag polar — the 2D NeuralFoil curve is nearly vertical (profile drag only); 3D LLT picks up induced drag, which dominates at high CL. **At CL = 0.5, induced drag is 69% of total.** |
 | ![](figures/llt_elliptic_identity.png) | Solver trace lies exactly on the analytical line $C_{D_i} = C_L^2/(\pi AR)$ for an elliptic wing — machine-precision agreement is the test of any LLT implementation. |
 | ![](figures/llt_lift_curve_stall.png) | Rectangular AR=10 wing through stall (Hoerner flat-plate sectional polar). Demonstrates the nonlinear solver gracefully handling post-stall, which the linear LLT cannot. |
 | ![](figures/llt_span_efficiency.png) | Span efficiency vs aspect ratio for three planforms. Reproduces the classical LLT result: elliptic wings have $e \approx 1$, rectangular wings fall to 0.86 at AR=20. |
@@ -161,15 +166,18 @@ with the Jacobian $J_{ij} = \delta_{ij} + \tfrac{1}{2} c_i\, a_i\, W_{ij}$ where
 ### Quickstart
 
 ```python
+import math
 from aerosurrogate.lifting_line import Wing, ThinAirfoilSection, solve_lifting_line
 
-# Elliptic wing, AR=8
-wing = Wing.elliptic(span=10.0, root_chord=1.59, n_sections=80)
+# Elliptic wing, AR=8.  For an ellipse S = π b c_root / 4, so c_root = 4 b / (π AR).
+span, AR = 10.0, 8.0
+c_root = 4.0 * span / (math.pi * AR)
+wing = Wing.elliptic(span=span, root_chord=c_root, n_sections=80)
 
 res = solve_lifting_line(wing, alpha_deg=5.0, section=ThinAirfoilSection())
 print(f"CL  = {res.CL:.4f}")
-print(f"CDi = {res.CDi:.5f}  (theory: {res.CL**2/(3.14159*wing.aspect_ratio):.5f})")
-print(f"e   = {res.span_efficiency:.4f}")
+print(f"CDi = {res.CDi:.5f}  (theory: {res.CL**2 / (math.pi * wing.aspect_ratio):.5f})")
+print(f"e   = {res.span_efficiency:.6f}")    # → 1.000000 for elliptic
 ```
 
 For NeuralFoil-backed sections (requires `pip install -e ".[build]"`):
@@ -207,20 +215,22 @@ src/aerosurrogate/
     ├── geometry.py     Wing dataclass (rectangular / elliptic / tapered factories)
     ├── sections.py     SectionalAero protocol + ThinAirfoil / FlatPlate / NeuralFoil
     ├── biot_savart.py  horseshoe-vortex downwash influence matrix
-    └── solver.py       Newton iteration + α-sweep with warm-start
+    ├── solver.py       Newton iteration + α-sweep with warm-start
+    └── classical.py    Glauert Fourier-series LLT (independent cross-validation)
 
 scripts/
 ├── build_dataset.py   rebuild data/aero_dataset.csv from scratch (needs neuralfoil)
 ├── train_eval.py      train every model, print headline + per-regime tables
 ├── make_figures.py    regenerate 2D figures/
-└── llt_demo.py        regenerate the three LLT validation figures
+└── llt_demo.py        regenerate the four LLT figures (incl. NeuralFoil-coupled)
 
 tests/
 ├── test_physics.py        9 closed-form + empirical aerodynamics property tests
 ├── test_dataset.py        split-by-airfoil invariants + determinism
 ├── test_models.py         every pipeline fits + predicts on synthetic data
-└── test_lifting_line.py   13 LLT validation tests (elliptic identity, Helmbold slope,
-                           span efficiency bounds, washout, post-stall convergence)
+└── test_lifting_line.py   17 LLT validation tests: elliptic identity, Helmbold slope,
+                           span-efficiency bounds, elliptic loading shape, washout,
+                           post-stall convergence, Newton-vs-Glauert cross-validation
 ```
 
 ## Quickstart

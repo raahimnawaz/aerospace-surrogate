@@ -32,6 +32,7 @@ elliptic wing — is enforced as a unit test in ``tests/test_lifting_line.py``.
 from __future__ import annotations
 
 from .biot_savart import downwash_matrix
+from .classical import GlauertResult, glauert_fourier_llt
 from .geometry import Wing
 from .sections import (
     FlatPlatePostStall,
@@ -43,6 +44,7 @@ from .solver import LiftingLineResult, alpha_sweep, solve_lifting_line
 
 __all__ = [
     "FlatPlatePostStall",
+    "GlauertResult",
     "LiftingLineResult",
     "NeuralFoilSection",
     "SectionalAero",
@@ -50,5 +52,6 @@ __all__ = [
     "Wing",
     "alpha_sweep",
     "downwash_matrix",
+    "glauert_fourier_llt",
     "solve_lifting_line",
 ]

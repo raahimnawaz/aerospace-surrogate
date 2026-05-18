@@ -205,7 +205,7 @@ def solve_lifting_line(
     iters = 0
     fd_step_rad = np.deg2rad(fd_step_deg)
 
-    for iters in range(1, max_iter + 1):
+    for iters in range(1, max_iter + 1):  # noqa: B007  (iters is consumed below)
         F, w_i, alpha_eff, cl_local = _eval_residual(
             Gamma, alpha_geom_section, chord, W, section, V_inf, Re_arr
         )

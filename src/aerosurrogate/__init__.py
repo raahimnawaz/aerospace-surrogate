@@ -26,12 +26,14 @@ from .eval import (
 )
 from .lifting_line import (
     FlatPlatePostStall,
+    GlauertResult,
     LiftingLineResult,
     NeuralFoilSection,
     SectionalAero,
     ThinAirfoilSection,
     Wing,
     alpha_sweep,
+    glauert_fourier_llt,
     solve_lifting_line,
 )
 from .models import FEATURES, TARGETS, build_models
@@ -45,6 +47,7 @@ __all__ = [
     "DATASET_PATH",
     "FEATURES",
     "FlatPlatePostStall",
+    "GlauertResult",
     "LiftingLineResult",
     "NeuralFoilSection",
     "SectionalAero",
@@ -56,6 +59,7 @@ __all__ = [
     "evaluate",
     "evaluate_cl_with_physics",
     "feature_importance",
+    "glauert_fourier_llt",
     "lifting_line",
     "load_dataset",
     "regime_eval",

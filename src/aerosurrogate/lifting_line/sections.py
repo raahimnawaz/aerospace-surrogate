@@ -80,10 +80,10 @@ class ThinAirfoilSection:
         """Zero-lift angle of attack, degrees."""
         return float(thin_airfoil_zero_lift_alpha(self.max_camber))
 
-    def cl(self, alpha_deg: ArrayLike, Re: ArrayLike = None) -> NDArray[np.float64]:  # noqa: ARG002
+    def cl(self, alpha_deg: ArrayLike, Re: ArrayLike | None = None) -> NDArray[np.float64]:  # noqa: ARG002
         return thin_airfoil_cl(alpha_deg, self.max_camber)
 
-    def cd(self, alpha_deg: ArrayLike, Re: ArrayLike = None) -> NDArray[np.float64]:
+    def cd(self, alpha_deg: ArrayLike, Re: ArrayLike | None = None) -> NDArray[np.float64]:
         cl_val = self.cl(alpha_deg, Re)
         return self.Cd0 + self.k * (cl_val - self.Cl_min_drag) ** 2
 
@@ -107,11 +107,11 @@ class FlatPlatePostStall:
 
     Cd0: float = 0.0
 
-    def cl(self, alpha_deg: ArrayLike, Re: ArrayLike = None) -> NDArray[np.float64]:  # noqa: ARG002
+    def cl(self, alpha_deg: ArrayLike, Re: ArrayLike | None = None) -> NDArray[np.float64]:  # noqa: ARG002
         a = np.deg2rad(np.asarray(alpha_deg, dtype=np.float64))
         return np.sin(2.0 * a)
 
-    def cd(self, alpha_deg: ArrayLike, Re: ArrayLike = None) -> NDArray[np.float64]:  # noqa: ARG002
+    def cd(self, alpha_deg: ArrayLike, Re: ArrayLike | None = None) -> NDArray[np.float64]:  # noqa: ARG002
         a = np.deg2rad(np.asarray(alpha_deg, dtype=np.float64))
         return self.Cd0 + 2.0 * np.sin(a) ** 2
 
@@ -126,14 +126,15 @@ class NeuralFoilSection:
     classical 3D inviscid wing theory, giving a viscous-3D total drag buildup
     cheaper than any panel method.
 
-    NeuralFoil is an *optional* dependency (``pip install -e ".[build]"``).
-    The import is lazy so the rest of this package works without it.
+    Both ``neuralfoil`` and ``aerosandbox`` are *optional* dependencies; the
+    imports are lazy so the rest of this package works without them. Install
+    with ``pip install -e ".[build]"``.
 
     Parameters
     ----------
     airfoil_name
-        NACA 4-digit code (e.g. ``"naca2412"``) or any name resolvable by
-        ``neuralfoil.get_aero_from_airfoil_name``.
+        Airfoil identifier resolvable by ``aerosandbox.Airfoil``. Examples:
+        ``"naca2412"``, ``"naca0012"``, ``"clarky"``, ``"e387"``.
     model_size
         NeuralFoil model size — one of ``"xxsmall"``, ``"xsmall"``, ``"small"``,
         ``"medium"``, ``"large"``, ``"xlarge"``, ``"xxlarge"``, ``"xxxlarge"``.
@@ -142,7 +143,8 @@ class NeuralFoilSection:
         Critical amplification factor (transition criterion). ``9`` is
         standard for clean wind tunnels; ``5`` for noisy / dirty conditions.
 
-    .. [#nf] Sharpe, P. D., "NeuralFoil." MIT-licensed. https://github.com/peterdsharpe/NeuralFoil
+    .. [#nf] Sharpe, P. D., "NeuralFoil." MIT-licensed.
+       https://github.com/peterdsharpe/NeuralFoil
     """
 
     def __init__(
@@ -154,21 +156,24 @@ class NeuralFoilSection:
         self.airfoil_name = airfoil_name
         self.model_size = model_size
         self.n_crit = float(n_crit)
-        # Lazy import; only fail at construction if user actually asks for it.
+        # Build the Airfoil once at construction; reuse for every query.
         try:
+            import aerosandbox as asb  # noqa: F401
             import neuralfoil  # noqa: F401
         except ImportError as e:  # pragma: no cover
             raise ImportError(
-                "NeuralFoilSection requires the optional 'neuralfoil' package. "
-                "Install with: pip install -e \".[build]\""
+                "NeuralFoilSection requires the optional 'neuralfoil' and "
+                "'aerosandbox' packages. Install with: "
+                "pip install -e \".[build]\""
             ) from e
+        self._airfoil = asb.Airfoil(airfoil_name)
 
     def _query(self, alpha_deg: ArrayLike, Re: ArrayLike) -> dict:
         import neuralfoil
         a = np.atleast_1d(np.asarray(alpha_deg, dtype=np.float64))
         r = np.broadcast_to(np.asarray(Re, dtype=np.float64), a.shape).copy()
-        return neuralfoil.get_aero_from_airfoil_name(
-            airfoil_name=self.airfoil_name,
+        return neuralfoil.get_aero_from_airfoil(
+            airfoil=self._airfoil,
             alpha=a,
             Re=r,
             n_crit=self.n_crit,

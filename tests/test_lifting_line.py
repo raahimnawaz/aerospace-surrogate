@@ -31,9 +31,9 @@ from aerosurrogate.lifting_line import (
     Wing,
     alpha_sweep,
     downwash_matrix,
+    glauert_fourier_llt,
     solve_lifting_line,
 )
-
 
 # -----------------------------------------------------------------------
 # 1. Kernel sanity
@@ -206,6 +206,73 @@ def test_washout_reduces_tip_loading():
 
 # -----------------------------------------------------------------------
 # 7. Post-stall convergence with the flat-plate polar
+# -----------------------------------------------------------------------
+
+# -----------------------------------------------------------------------
+# 8. Cross-validation against the classical Glauert Fourier-series LLT
+# -----------------------------------------------------------------------
+#
+# The Newton solver and the Glauert solver are mathematically distinct
+# formulations of the same physics — horseshoe-vortex Newton iteration
+# vs. half-span Fourier-series collocation. Agreement to 4-5 decimals
+# across three canonical planforms is the strongest internal consistency
+# check available without an external reference implementation.
+
+
+def _newton_thinairfoil(wing, alpha_deg):
+    return solve_lifting_line(wing, alpha_deg, ThinAirfoilSection(), tol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "wing_factory, alpha",
+    [
+        (lambda: Wing.elliptic(span=10.0, root_chord=4 * 10 / (math.pi * 8), n_sections=80), 5.0),
+        (lambda: Wing.rectangular(span=10.0, chord=10.0 / 8, n_sections=120), 5.0),
+        (lambda: Wing.tapered(span=10.0, root_chord=10 * 2 / (6 * 1.5), taper_ratio=0.5, n_sections=120), 6.0),
+    ],
+    ids=["elliptic_AR8", "rectangular_AR8", "tapered_AR6_lambda0.5"],
+)
+def test_newton_matches_glauert(wing_factory, alpha: float):
+    """The Newton solver and the Glauert Fourier-series solver must agree.
+
+    Tolerances:
+        CL, CDi : 0.5% relative
+        e       : 1% relative
+
+    Two unrelated formulations of LLT (Phillips-Snyder Newton iteration over
+    a horseshoe-vortex grid, and Glauert's 1926 Fourier-series collocation)
+    agreeing to this precision means the physics, the kernel, and the
+    integration weights are all consistent. Disagreement larger than this
+    would indicate a real bug in one of the two solvers.
+    """
+    wing = wing_factory()
+    g = glauert_fourier_llt(wing, alpha, n_modes=40)
+    n = _newton_thinairfoil(wing, alpha)
+    assert n.CL == pytest.approx(g.CL, rel=5e-3), f"CL: Newton {n.CL:.5f} vs Glauert {g.CL:.5f}"
+    assert n.CDi == pytest.approx(g.CDi, rel=5e-3), f"CDi: Newton {n.CDi:.5f} vs Glauert {g.CDi:.5f}"
+    assert n.span_efficiency == pytest.approx(g.span_efficiency, rel=1e-2)
+
+
+def test_glauert_elliptic_gives_unit_span_efficiency_exactly():
+    """An elliptic planform should give ``A_n = 0`` for all ``n ≥ 3``.
+
+    For ``c(θ) = c_root · sin(θ)``, substituting into Glauert's equation and
+    multiplying through by ``sin(θ)`` shows the RHS has only the ``sin(θ)``
+    component — so all higher modes must vanish algebraically. Numerically
+    they should vanish to machine epsilon, giving ``e = 1`` exactly.
+    """
+    wing = Wing.elliptic(span=10.0, root_chord=4 * 10 / (math.pi * 8), n_sections=80)
+    res = glauert_fourier_llt(wing, 5.0, n_modes=20)
+    assert res.span_efficiency == pytest.approx(1.0, abs=1e-12), (
+        f"e = {res.span_efficiency:.10f}, expected 1.0 exactly"
+    )
+    assert abs(res.A_n[1] / res.A_n[0]) < 1e-12, (
+        f"|A_3 / A_1| = {abs(res.A_n[1] / res.A_n[0]):.2e}, expected ~0"
+    )
+
+
+# -----------------------------------------------------------------------
+# 9. Post-stall convergence with the flat-plate polar
 # -----------------------------------------------------------------------
 
 def test_alpha_sweep_through_stall_converges():
