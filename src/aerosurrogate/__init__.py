@@ -10,7 +10,13 @@ Public API:
     thin_airfoil_cl(...)  — closed-form aerodynamic baseline
 """
 from .dataset import DATASET_PATH, load_dataset, split_by_airfoil
-from .eval import evaluate, feature_importance, regime_eval
+from .eval import (
+    evaluate,
+    evaluate_cl_with_physics,
+    feature_importance,
+    regime_eval,
+    regime_eval_cl_with_physics,
+)
 from .models import FEATURES, TARGETS, build_models
 from .physics import (
     thin_airfoil_cl,
@@ -24,9 +30,11 @@ __all__ = [
     "TARGETS",
     "build_models",
     "evaluate",
+    "evaluate_cl_with_physics",
     "feature_importance",
     "load_dataset",
     "regime_eval",
+    "regime_eval_cl_with_physics",
     "split_by_airfoil",
     "thin_airfoil_cl",
     "thin_airfoil_cl_slope_per_deg",

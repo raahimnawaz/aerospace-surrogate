@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 
-def thin_airfoil_zero_lift_alpha(max_camber: float) -> float:
+def thin_airfoil_zero_lift_alpha(max_camber: ArrayLike) -> NDArray[np.float64]:
     """Zero-lift angle of attack (degrees) for a thin cambered airfoil.
 
     For a parabolic camber line ``z(x) = 4·m·x·(1−x)`` the Glauert integral
@@ -25,11 +25,16 @@ def thin_airfoil_zero_lift_alpha(max_camber: float) -> float:
     piecewise (linear/parabolic), so this is an approximation — but it
     captures the linear-regime shift to within a few tenths of a degree for
     moderate camber.
+
+    Accepts scalar or array `max_camber` and returns the same shape as a
+    numpy array (always degrees).
     """
-    return float(-np.degrees(2.0 * max_camber))
+    return -np.degrees(2.0 * np.asarray(max_camber, dtype=np.float64))
 
 
-def thin_airfoil_cl(alpha_deg: ArrayLike, max_camber: float = 0.0) -> NDArray[np.float64]:
+def thin_airfoil_cl(
+    alpha_deg: ArrayLike, max_camber: ArrayLike = 0.0,
+) -> NDArray[np.float64]:
     """Lift coefficient via thin airfoil theory.
 
         C_L = 2π · (α − α_{L=0})       [α in radians]
@@ -37,6 +42,9 @@ def thin_airfoil_cl(alpha_deg: ArrayLike, max_camber: float = 0.0) -> NDArray[np
     Valid only in the linear regime (|α| roughly < 6°). Ignores viscosity,
     thickness, Reynolds number, and stall entirely. The whole point of this
     baseline is to make explicit what those omissions cost in accuracy.
+
+    `alpha_deg` and `max_camber` broadcast together — pass arrays of equal
+    length to compute per-row predictions across a dataset.
     """
     alpha = np.asarray(alpha_deg, dtype=np.float64)
     a_zero = thin_airfoil_zero_lift_alpha(max_camber)

@@ -10,6 +10,7 @@ from pathlib import Path
 from aerosurrogate.dataset import load_dataset
 from aerosurrogate.plot import (
     plot_feature_importance,
+    plot_ml_vs_physics_cl,
     plot_predicted_vs_actual,
     plot_residuals_vs_alpha,
 )
@@ -21,6 +22,7 @@ def main() -> None:
     df = load_dataset()
     plot_predicted_vs_actual(df, FIG_DIR / "predicted_vs_actual.png")
     plot_residuals_vs_alpha(df, FIG_DIR / "residuals_vs_alpha.png")
+    plot_ml_vs_physics_cl(df, FIG_DIR / "ml_vs_physics_cl.png")
     plot_feature_importance(df, FIG_DIR / "feature_importance.png")
 
 
