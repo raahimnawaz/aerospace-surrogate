@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aerosurrogate"
+version = "0.1.0"
+description = "ML surrogates for 2D airfoil aerodynamic coefficients (CL/CD/CM), benchmarked against thin airfoil theory."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Raahim Nawaz" }]
+keywords = ["aerospace", "airfoil", "aerodynamics", "machine-learning", "scikit-learn", "neuralfoil"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+# Heavy aerospace deps — only needed to *rebuild* the cached dataset.
+build = [
+    "aerosandbox>=4.2",
+    "neuralfoil>=0.2",
+]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.4",
+    "mypy>=1.6",
+]
+
+[project.scripts]
+aero-train = "scripts.train_eval:main"
+aero-figures = "scripts.make_figures:main"
+aero-build = "scripts.build_dataset:main"
+
+[project.urls]
+Homepage = "https://github.com/raahimnawaz/aerospace_project"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+files = ["src/aerosurrogate"]
+python_version = "3.10"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
