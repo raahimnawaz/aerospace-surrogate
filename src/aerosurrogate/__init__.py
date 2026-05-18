@@ -1,4 +1,5 @@
-"""aerosurrogate — ML surrogates for 2D airfoil aerodynamic coefficients.
+"""aerosurrogate — ML surrogates for 2D airfoil aerodynamic coefficients,
+plus a nonlinear lifting-line solver that lifts them to 3D finite wings.
 
 Public API:
     FEATURES, TARGETS     — feature and target column names used by every model
@@ -8,7 +9,13 @@ Public API:
     evaluate(df, target)  — per-model CV + held-out test metrics
     regime_eval(...)      — per-regime (linear / pre-stall / stall) breakdown
     thin_airfoil_cl(...)  — closed-form aerodynamic baseline
+
+    lifting_line             — subpackage: 3D finite-wing analysis (LLT)
+    Wing, SectionalAero      — wing geometry + 2D-polar protocol
+    solve_lifting_line(...)  — single-α nonlinear lifting-line solve
+    alpha_sweep(...)         — warm-started α-sweep returning CL/CDi/CD/e
 """
+from . import lifting_line
 from .dataset import DATASET_PATH, load_dataset, split_by_airfoil
 from .eval import (
     evaluate,
@@ -16,6 +23,16 @@ from .eval import (
     feature_importance,
     regime_eval,
     regime_eval_cl_with_physics,
+)
+from .lifting_line import (
+    FlatPlatePostStall,
+    LiftingLineResult,
+    NeuralFoilSection,
+    SectionalAero,
+    ThinAirfoilSection,
+    Wing,
+    alpha_sweep,
+    solve_lifting_line,
 )
 from .models import FEATURES, TARGETS, build_models
 from .physics import (
@@ -27,14 +44,23 @@ from .physics import (
 __all__ = [
     "DATASET_PATH",
     "FEATURES",
+    "FlatPlatePostStall",
+    "LiftingLineResult",
+    "NeuralFoilSection",
+    "SectionalAero",
     "TARGETS",
+    "ThinAirfoilSection",
+    "Wing",
+    "alpha_sweep",
     "build_models",
     "evaluate",
     "evaluate_cl_with_physics",
     "feature_importance",
+    "lifting_line",
     "load_dataset",
     "regime_eval",
     "regime_eval_cl_with_physics",
+    "solve_lifting_line",
     "split_by_airfoil",
     "thin_airfoil_cl",
     "thin_airfoil_cl_slope_per_deg",

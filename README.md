@@ -4,11 +4,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
-A reproducible benchmark for replacing expensive panel-method aerodynamic solvers with small sklearn models, judged honestly against the 100-year-old closed-form baseline that's already in every aerospace textbook.
+A reproducible benchmark for replacing expensive panel-method aerodynamic solvers with small sklearn models, judged honestly against the 100-year-old closed-form baseline that's already in every aerospace textbook — plus a nonlinear lifting-line solver that lifts the 2D sectional polars to 3D finite-wing predictions.
 
-**Headline result.** On lift coefficient prediction, gradient boosting matches thin airfoil theory in the linear regime (R² 0.952 vs 0.950), pulls ahead through pre-stall (R² 0.89 vs 0.80), and stays useful into stall where thin airfoil theory collapses to **R² = −1.77**.
+**Headline 2D result.** On lift coefficient prediction, gradient boosting matches thin airfoil theory in the linear regime (R² 0.952 vs 0.950), pulls ahead through pre-stall (R² 0.89 vs 0.80), and stays useful into stall where thin airfoil theory collapses to **R² = −1.77**.
 
 ![CL: ML surrogate vs classical thin airfoil theory](figures/ml_vs_physics_cl.png)
+
+**Headline 3D result.** The nonlinear lifting-line solver reproduces the analytical identity ``CDi = CL² / (π · AR)`` for an elliptic wing to **3 × 10⁻¹⁵ relative error** (machine precision) and converges through stall in 2-4 Newton iterations. Coupled with NeuralFoil as the sectional polar, this is the first place in the project where induced drag — typically 30-50% of total drag at cruise — is actually computed.
+
+![Elliptic wing: LLT solver vs the analytical identity](figures/llt_elliptic_identity.png)
 
 ---
 
@@ -123,6 +127,70 @@ Nine aerodynamics-grounded tests that double as a dataset sanity check:
 
 ---
 
+## 3D extension: nonlinear lifting-line theory
+
+The 2D surrogate above predicts ``Cl(α, Re)``, ``Cd(α, Re)``, ``Cm(α, Re)`` for an *infinite-span* airfoil. A real wing has finite span, so the trailing vortex sheet rolls up into wingtip vortices, which tilt the local lift vector backward and produce **induced drag** — roughly 30-50% of total drag at cruise for a high-aspect-ratio wing.
+
+The :mod:`aerosurrogate.lifting_line` subpackage closes that gap. It pairs any 2D sectional polar (thin-airfoil theory, the trained sklearn surrogate, or NeuralFoil itself) with the classical induced-downwash kernel of Prandtl, solved by Newton iteration in the modern style of Phillips & Snyder (2000):
+
+$$
+F_i(\Gamma) \equiv \Gamma_i - \tfrac{1}{2} V_\infty\, c_i\, C_l\!\left(\alpha_{\text{eff},i}(\Gamma),\, Re_i\right) = 0
+$$
+
+with the Jacobian $J_{ij} = \delta_{ij} + \tfrac{1}{2} c_i\, a_i\, W_{ij}$ where $a_i = dC_l/d\alpha$ comes from a one-sided finite difference on the sectional polar (so the solver works with any polar — even a black-box neural net) and $W_{ij}$ is the horseshoe-vortex induction matrix.
+
+### Validation (13 property tests, all passing)
+
+| Identity | Source | Result |
+|---|---|---:|
+| Elliptic wing: $C_{D_i} = C_L^2 / (\pi \cdot AR)$ | classical LLT | matches to **3 × 10⁻¹⁵** rel. error |
+| Finite-wing slope: $a = 2\pi \cdot AR/(AR+2)$ | Helmbold | matches to **5 × 10⁻⁵** |
+| Rectangular wing: $e \in (0.85, 1.0)$ | classical LLT | 0.86 (AR=20) — 0.97 (AR=4) |
+| Elliptic loading shape $\Gamma(y) \propto \sqrt{1-(2y/b)^2}$ | classical LLT | matches to 5 × 10⁻³ |
+| Convergence through stall (α=0 → 55°) | flat-plate polar | converges in 2-7 Newton iterations |
+| Washout shifts loading inboard | aircraft design | tip $\Gamma$ reduced 53% with −3° washout |
+
+### Demo figures
+
+| Figure | What it shows |
+|---|---|
+| ![](figures/llt_elliptic_identity.png) | Solver trace lies exactly on the analytical line $C_{D_i} = C_L^2/(\pi AR)$ for an elliptic wing — machine-precision agreement is the test of any LLT implementation. |
+| ![](figures/llt_lift_curve_stall.png) | Rectangular AR=10 wing through stall (Hoerner flat-plate sectional polar). Demonstrates the nonlinear solver gracefully handling post-stall, which the linear LLT cannot. |
+| ![](figures/llt_span_efficiency.png) | Span efficiency vs aspect ratio for three planforms. Reproduces the classical LLT result: elliptic wings have $e \approx 1$, rectangular wings fall to 0.86 at AR=20. |
+
+### Quickstart
+
+```python
+from aerosurrogate.lifting_line import Wing, ThinAirfoilSection, solve_lifting_line
+
+# Elliptic wing, AR=8
+wing = Wing.elliptic(span=10.0, root_chord=1.59, n_sections=80)
+
+res = solve_lifting_line(wing, alpha_deg=5.0, section=ThinAirfoilSection())
+print(f"CL  = {res.CL:.4f}")
+print(f"CDi = {res.CDi:.5f}  (theory: {res.CL**2/(3.14159*wing.aspect_ratio):.5f})")
+print(f"e   = {res.span_efficiency:.4f}")
+```
+
+For NeuralFoil-backed sections (requires `pip install -e ".[build]"`):
+
+```python
+from aerosurrogate.lifting_line import NeuralFoilSection, alpha_sweep
+import numpy as np
+
+section = NeuralFoilSection(airfoil_name="naca2412", model_size="medium")
+out = alpha_sweep(wing, np.arange(-2, 16, 1.0), section, Re_ref=3e6)
+# out["CL"], out["CDi"], out["CD_profile"], out["CD"], out["span_efficiency"], ...
+```
+
+Reproduce all three demo figures:
+
+```bash
+python scripts/llt_demo.py
+```
+
+---
+
 ## Repo layout
 
 ```
@@ -133,17 +201,26 @@ src/aerosurrogate/
 ├── models.py       four sklearn pipelines
 ├── physics.py      thin airfoil theory baselines + Glauert α_{L=0}
 ├── eval.py         per-model + per-regime evaluation (with TAT comparison for CL)
-└── plot.py         four figure generators
+├── plot.py         four figure generators
+│
+└── lifting_line/   nonlinear LLT solver — 3D finite-wing analysis
+    ├── geometry.py     Wing dataclass (rectangular / elliptic / tapered factories)
+    ├── sections.py     SectionalAero protocol + ThinAirfoil / FlatPlate / NeuralFoil
+    ├── biot_savart.py  horseshoe-vortex downwash influence matrix
+    └── solver.py       Newton iteration + α-sweep with warm-start
 
 scripts/
 ├── build_dataset.py   rebuild data/aero_dataset.csv from scratch (needs neuralfoil)
 ├── train_eval.py      train every model, print headline + per-regime tables
-└── make_figures.py    regenerate figures/
+├── make_figures.py    regenerate 2D figures/
+└── llt_demo.py        regenerate the three LLT validation figures
 
 tests/
-├── test_physics.py    9 closed-form + empirical aerodynamics property tests
-├── test_dataset.py    split-by-airfoil invariants + determinism
-└── test_models.py     every pipeline fits + predicts on synthetic data
+├── test_physics.py        9 closed-form + empirical aerodynamics property tests
+├── test_dataset.py        split-by-airfoil invariants + determinism
+├── test_models.py         every pipeline fits + predicts on synthetic data
+└── test_lifting_line.py   13 LLT validation tests (elliptic identity, Helmbold slope,
+                           span efficiency bounds, washout, post-stall convergence)
 ```
 
 ## Quickstart
@@ -169,8 +246,8 @@ python scripts/build_dataset.py
 
 ## What this benchmark does not claim
 
-- **Does not beat NeuralFoil.** Our labels *come from* NeuralFoil, so the surrogate's ceiling is NeuralFoil's accuracy. The benchmark is "how close can a 600-tree GBM get to NeuralFoil at much lower inference cost," not "we have a better airfoil solver."
+- **Does not beat NeuralFoil.** Our 2D labels *come from* NeuralFoil, so the surrogate's ceiling is NeuralFoil's accuracy. The benchmark is "how close can a 600-tree GBM get to NeuralFoil at much lower inference cost," not "we have a better airfoil solver." The lifting-line extension changes the framing: NeuralFoil is no longer the ceiling but the *sectional* input to a 3D wing solver, so the combined output now includes induced drag and stall behavior NeuralFoil alone cannot give.
 - **Does not extrapolate.** Test set is held-out shapes within the same NACA + UIUC distribution. Generalization to wholly novel geometries (e.g. transonic airfoils, supercritical sections) is not measured here.
-- **Does not handle 3D effects.** This is 2D-airfoil regression. Wingtip vortices, sweep, dihedral, and induced drag all sit outside the model.
+- **Planar, unswept wings only (3D extension).** The lifting-line solver assumes a planar wing with no sweep or dihedral. Adding swept / dihedral / multi-surface geometries means moving to a full vortex-lattice method (VLM); that's a deliberate future extension, not a current claim. The current scope is *exactly* the case where classical LLT gives the right answer.
 
-These are the right limitations to be explicit about. The contribution is the **regime-aware benchmark methodology** + the explicit ML-vs-classical-theory comparison, not a new surrogate model.
+The contribution is the **regime-aware benchmark methodology** + the explicit ML-vs-classical-theory comparison in 2D, *coupled with* a validated nonlinear 3D wing solver that closes the induced-drag gap.
