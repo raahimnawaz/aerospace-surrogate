@@ -1,6 +1,6 @@
-# aerosurrogate
+# aerospace-surrogate
 
-[![CI](https://github.com/raahimnawaz/aerospace_project/actions/workflows/ci.yml/badge.svg)](https://github.com/raahimnawaz/aerospace_project/actions/workflows/ci.yml)
+[![CI](https://github.com/raahimnawaz/aerospace-surrogate/actions/workflows/ci.yml/badge.svg)](https://github.com/raahimnawaz/aerospace-surrogate/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
@@ -259,8 +259,8 @@ The Ridge surrogate is exported from the trained Poly-2 Ridge pipeline as `pub c
 ## Quickstart
 
 ```bash
-git clone https://github.com/raahimnawaz/aerospace_project
-cd aerospace_project
+git clone https://github.com/raahimnawaz/aerospace-surrogate
+cd aerospace-surrogate
 pip install -e ".[dev]"
 
 pytest -q                          # 19 tests, ~3s on cached data
