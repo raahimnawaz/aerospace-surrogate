@@ -1,0 +1,26 @@
+[package]
+name = "aerosurrogate-py"
+description = "PyO3 bindings: Python wheel for the aerosurrogate-core lifting-line solver"
+publish = false
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "aerosurrogate_rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aerosurrogate-core = { path = "../aerosurrogate-core" }
+pyo3 = { workspace = true }
+numpy = { workspace = true }
+nalgebra = { workspace = true }
+
+[features]
+# Enabled only by maturin (see pyproject.toml). Tells PyO3 to skip linking
+# Python symbols statically so the produced .so / .pyd is loadable by the
+# host interpreter. Default off so `cargo build` works from the workspace.
+extension-module = ["pyo3/extension-module"]

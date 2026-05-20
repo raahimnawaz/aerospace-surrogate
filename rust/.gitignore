@@ -1,0 +1,11 @@
+# Cargo build output
+target/
+
+# maturin staging
+*.so
+*.dylib
+*.pyd
+__pycache__/
+
+# Criterion benchmark reports
+**/criterion/

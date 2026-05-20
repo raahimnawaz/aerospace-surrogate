@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "aerosurrogate-rs"
+description = "Rust port of the aerosurrogate nonlinear lifting-line solver, with baked-in sklearn surrogate sectional polars."
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Raahim Nawaz" }]
+keywords = ["aerospace", "airfoil", "aerodynamics", "lifting-line", "rust"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/raahimnawaz/aerospace-surrogate"
+
+[tool.maturin]
+module-name = "aerosurrogate_rs"
+features = ["extension-module"]

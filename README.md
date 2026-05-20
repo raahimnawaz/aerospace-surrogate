@@ -12,6 +12,8 @@ A reproducible benchmark for replacing expensive panel-method aerodynamic solver
 
 **Headline 3D result.** The nonlinear lifting-line solver reproduces the analytical identity ``CDi = CL² / (π · AR)`` for an elliptic wing to **3 × 10⁻¹⁵ relative error** (machine precision), agrees with the classical Glauert Fourier-series formulation to 4-5 decimals on rectangular and tapered wings, and converges through stall in 2-4 Newton iterations. Coupling NeuralFoil as the sectional polar produces a viscous 3D wing analysis where **induced drag is 69% of total drag** at ``CL = 0.5`` on a NACA 2412 AR=8 wing — exactly the contribution a 2D-only pipeline cannot see.
 
+**Headline Rust result.** A faithful Rust port of the LLT solver, with the trained Ridge surrogate baked into the binary as `pub const` arrays, runs the same NACA-2412 / AR=8 / 25-point α sweep **9.8× faster** than the Python reference (38 ms → 3.9 ms) — fast enough for a 100 Hz embedded control loop, with zero Python or sklearn dependency at runtime. 28 Python ↔ Rust parity tests confirm the two implementations agree to **1e-10** on every wing configuration in the suite. See [rust/README.md](rust/README.md).
+
 ![NeuralFoil-coupled 3D wing analysis](figures/llt_neuralfoil_wing.png)
 
 ---
@@ -228,10 +230,31 @@ tests/
 ├── test_physics.py        9 closed-form + empirical aerodynamics property tests
 ├── test_dataset.py        split-by-airfoil invariants + determinism
 ├── test_models.py         every pipeline fits + predicts on synthetic data
-└── test_lifting_line.py   17 LLT validation tests: elliptic identity, Helmbold slope,
-                           span-efficiency bounds, elliptic loading shape, washout,
-                           post-stall convergence, Newton-vs-Glauert cross-validation
+├── test_lifting_line.py   17 LLT validation tests: elliptic identity, Helmbold slope,
+│                          span-efficiency bounds, elliptic loading shape, washout,
+│                          post-stall convergence, Newton-vs-Glauert cross-validation
+└── test_rust_parity.py    28 Python ↔ Rust parity tests (1e-10 agreement)
+
+rust/                      Rust port of the LLT solver. See rust/README.md.
+├── aerosurrogate-core/    Pure Rust library: Wing, sections, Glauert, Newton solver,
+│                          baked-in Ridge surrogate (zero allocation in hot path)
+├── aerosurrogate-py/      PyO3 wrapper → Python wheel via maturin
+│                          (`from aerosurrogate_rs import solve_lifting_line`)
+└── scripts/               Export trained sklearn → const Rust arrays
 ```
+
+## Rust port — real-time aero buildup
+
+`rust/aerosurrogate-core` mirrors the Python LLT module function-for-function and validates against the same analytical identities. The PyO3 wheel `aerosurrogate-rs` makes the Rust solver callable from Python so the existing test infrastructure can verify parity at every wing configuration. Benchmarks (M-series MacBook, single-thread):
+
+| Solver call | Polar | Python | Rust | Speed-up |
+|---|---|---:|---:|---:|
+| single α | thin-airfoil | 120 µs | **40 µs** | 3.0× |
+| single α | Ridge surrogate (NACA 2412) | 3.9 ms | **0.45 ms** | **8.7×** |
+| α-sweep (25 pts, warm-start) | thin-airfoil | 3.0 ms | **1.0 ms** | 3.1× |
+| α-sweep (25 pts, warm-start) | Ridge surrogate (NACA 2412) | 38 ms | **3.9 ms** | **9.8×** |
+
+The Ridge surrogate is exported from the trained Poly-2 Ridge pipeline as `pub const` f64 arrays in `rust/aerosurrogate-core/src/surrogate/ridge.rs`, baked into the binary by the build. No Python, no sklearn, no allocation in the hot path: one query is ~200 scalar multiply-adds. The Rust ↔ sklearn parity test confirms agreement to **1e-12** on a static fixture set.
 
 ## Quickstart
 
