@@ -58,7 +58,9 @@ ignore = ["E501"]
 
 [tool.mypy]
 files = ["src/aerosurrogate"]
-python_version = "3.10"
+# No python_version pin: mypy targets the running interpreter, so each CI job
+# (3.11, 3.12) type-checks against its own version. Pinning to 3.10 made mypy
+# reject the PEP 695 `type` statements in numpy's 3.12-only stubs (numpy 2.5+).
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
